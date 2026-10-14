@@ -611,7 +611,9 @@
   $("episode").value = store.get("episode") || "";
   $("sel").value = store.get("sel") || "";
   $("fssel").value = store.get("fssel") || "";
-  const DEFAULT_SHARE_URL = "http://localhost:8765/";
+  // The relay this install uses (its port can be changed in settings.json); updated from the
+  // helper's /info below, which also gives the TV links and this install's home code.
+  let DEFAULT_SHARE_URL = "http://localhost:8765/", relayInfo = null;
   $("share").checked = store.get("share") !== "0";
   $("room").value = (store.get("room") || "").trim() || "1234";  // always filled in, 1234 unless changed
   // On the phone the screen is always shared (the live screen there needs it).
@@ -638,7 +640,14 @@
     const sharing = $("share").checked, room = $("room").value.trim().toUpperCase() || "1234";
     const shareUrl = $("shareurl").value.trim() || DEFAULT_SHARE_URL;
     $("share-row").hidden = $("share-hint").hidden = !sharing;
-    $("share-hint").innerHTML = `On the TV, open <code>${shareUrl.replace(/#.*$/, "").replace(/&/g, "&amp;").replace(/</g, "&lt;")}#tv=${room.replace(/[^A-Z0-9]/g, "") || "1234"}</code> so it always uses that room code.`;
+    const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    const tvRoom = room.replace(/[^A-Z0-9]/g, "") || "1234";
+    const tvHome = relayInfo && relayInfo.home ? "&h=" + relayInfo.home : "";
+    $("share-hint").innerHTML = relayInfo
+      ? `On the TV, open <code>${esc(relayInfo.publicRelay + "#tv=" + tvRoom + tvHome)}</code> (anywhere)`
+        + (relayInfo.lanRelay ? ` or <code>${esc(relayInfo.lanRelay + "#tv=" + tvRoom + tvHome)}</code> (on this Wi-Fi)` : "")
+        + ". Bookmark it there and it's always ready on that room."
+      : `On the TV, open the TV link the phone shows after Run.`;
     const shareArgs = sharing && room ? ["--share-room", room, ...(shareUrl !== DEFAULT_SHARE_URL ? ["--share-url", shareUrl] : [])] : [];
     store.set("aftersel", $("aftersel").value);
     store.set("keepsel", $("keepsel").value);
@@ -1268,10 +1277,23 @@
     build();
   }
   if (!REMOTE && location.protocol !== "file:") {
+    fetch("/info", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(info => {
+      if (!info) return;
+      relayInfo = info;
+      relayHome = info.home || relayHome;
+      const port = info.lanRelay ? new URL(info.lanRelay).port : "";
+      if (port) {
+        const old = DEFAULT_SHARE_URL;
+        DEFAULT_SHARE_URL = "http://localhost:" + port + "/";
+        if ($("shareurl").value === old || !$("shareurl").value) $("shareurl").value = DEFAULT_SHARE_URL;
+      }
+      build();
+    }).catch(() => {});
     fetch("/config", { cache: "no-store" }).then(r => r.ok ? r.json() : {}).then(c => {
       savedConfig = c || {};
       // Fill in what this browser hasn't set itself.
       if (c.site && !$("url").value) $("url").value = c.site;
+      if (c.room && !store.get("room")) $("room").value = c.room;  // the imported room, unless changed here
       if (c.play_selectors && !$("sel").value) $("sel").value = c.play_selectors.join("\n");
       if (c.fullscreen_selector && !$("fssel").value) $("fssel").value = c.fullscreen_selector;
       if (c.after_fullscreen_selectors && !$("aftersel").value) $("aftersel").value = c.after_fullscreen_selectors.join("\n");
