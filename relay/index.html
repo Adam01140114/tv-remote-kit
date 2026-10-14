@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen Relay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  /* Layout: home = two side-by-side choices; TV = full-bleed dark screen with a giant code; sharing = one status panel */
+  :root {
+    --bg: #eef0f3; --surface: #ffffff; --fg: #15191f; --muted: #5c6673;
+    --line: #d5dae1; --accent: #2a5bd7; --accent-fg: #ffffff;
+    --live: #d93a2b; --ok: #1d8a52; --warn: #a86500;
+    --tv-bg: #0b0e13; --tv-fg: #f2f4f7; --tv-muted: #8b95a3; --tv-line: #232933;
+    --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+    --body: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --surface: #181c22; --fg: #e8ebef; --muted: #96a0ad;
+      --line: #2a3039; --accent: #6b93f5; --accent-fg: #0b1020;
+      --live: #f0614f; --ok: #44c486; --warn: #e3a440; color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 var(--body); }
+  [hidden] { display: none !important; }
+
+  button { font: 500 1rem var(--body); border-radius: 8px; padding: 12px 18px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button.danger { background: transparent; color: var(--live); border-color: var(--live); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .note { color: var(--muted); font-size: 0.9rem; margin: 0; }
+  .note.ok { color: var(--ok); }
+  .note.warn { color: var(--warn); }
+  .label { font: 500 0.72rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+
+  /* ---------- Home ---------- */
+  .wrap { max-width: 920px; margin: 0 auto; padding: 40px 16px; display: grid; gap: 28px; }
+  h1 { font: 700 clamp(1.8rem, 5vw, 2.6rem)/1.05 var(--display); margin: 0; letter-spacing: -0.02em; }
+  .lede { margin: 6px 0 0; color: var(--muted); max-width: 52ch; }
+  .choices { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .choices { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 22px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+  .card h2 { font: 600 1.25rem/1.2 var(--display); margin: 0; }
+  .code-input { width: 100%; font: 600 clamp(1.8rem, 7vw, 2.4rem) var(--mono); letter-spacing: 0.3em; text-transform: uppercase; text-align: center; padding: 12px 8px 12px calc(8px + 0.3em); border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  .code-input::placeholder { color: var(--line); }
+  .card .primary { width: 100%; }
+  .error { color: var(--live); font-size: 0.9rem; margin: 0; min-height: 1.35em; }
+
+  /* ---------- Sharing (computer) ---------- */
+  .share-panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 22px; display: grid; gap: 14px; }
+  .share-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .share-head h2 { font: 600 1.35rem/1.2 var(--display); margin: 0; }
+  .share-head .tvcode { font-family: var(--mono); letter-spacing: 0.12em; }
+  .preview { width: 100%; max-height: 50vh; background: #000; border-radius: 8px; display: block; object-fit: contain; aspect-ratio: 16 / 9; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; font: 500 0.78rem var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .pill[data-state="live"] { color: var(--live); }
+  .pill[data-state="live"] .dot { background: var(--live); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+
+  /* ---------- TV ---------- */
+  #tv { position: fixed; inset: 0; background: var(--tv-bg); color: var(--tv-fg); display: grid; }
+  #tv .waiting { display: grid; grid-template-columns: auto auto; gap: clamp(32px, 6vw, 96px); align-items: center; justify-content: center; padding: 32px; }
+  @media (max-aspect-ratio: 1/1) { #tv .waiting { grid-template-columns: 1fr; justify-items: center; text-align: center; } }
+  #tv .eyebrow { font: 500 clamp(0.9rem, 1.6vw, 1.3rem) var(--mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--tv-muted); }
+  #tv .big-code { font: 600 clamp(4rem, 13vw, 11rem)/1 var(--mono); letter-spacing: 0.12em; margin: 10px 0 18px; font-variant-numeric: tabular-nums; }
+  #tv .howto { font-size: clamp(1rem, 1.9vw, 1.6rem); color: var(--tv-muted); margin: 0; max-width: 30ch; }
+  #tv .howto strong { color: var(--tv-fg); font-weight: 500; }
+  #tv .qr { background: #fff; padding: 16px; border-radius: 14px; line-height: 0; }
+  #tv .qr img, #tv .qr canvas { width: clamp(150px, 22vw, 280px) !important; height: auto !important; }
+  #tv .sound-prompt { margin: 22px 0 0; font-size: clamp(1rem, 1.9vw, 1.6rem); color: #ffd166; max-width: 30ch; }
+  #tv .sound-prompt.on { color: #6ee7a8; }
+  #tv .sound-overlay {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5;
+    padding: 0.6em 1.1em; border-radius: 16px; background: rgba(0, 0, 0, 0.8); color: #fff;
+    font: 600 clamp(1.6rem, 4vw, 3.4rem) var(--display); pointer-events: none;
+  }
+  #tv .volume-overlay {
+    position: absolute; right: 32px; top: 28px; z-index: 6; padding: 0.4em 0.9em; border-radius: 12px;
+    background: rgba(0, 0, 0, 0.75); color: #fff; font: 600 clamp(1.2rem, 2.6vw, 2.2rem) var(--mono); pointer-events: none;
+  }
+  #tv .tv-status { position: absolute; left: 24px; bottom: 20px; font: 500 0.85rem var(--mono); color: var(--tv-muted); letter-spacing: 0.04em; }
+  #tv video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #tv .tv-controls { position: absolute; right: 20px; bottom: 20px; display: flex; gap: 10px; transition: opacity 0.3s; }
+  #tv.idle-cursor { cursor: none; }
+  #tv.idle-cursor .tv-controls.autohide { opacity: 0; }
+  #tv .tv-controls button { background: rgba(0,0,0,0.6); color: #fff; border-color: rgba(255,255,255,0.25); font-size: 0.9rem; padding: 9px 14px; }
+  #tv .tv-controls button.sound { background: #fff; color: #0b0e13; border-color: #fff; font-weight: 600; }
+  @media (prefers-reduced-motion: reduce) { .pill .dot { animation: none !important; } }
+</style>
+</head>
+<body>
+
+<!-- ===== Home: pick a role ===== -->
+<div class="wrap" id="home">
+  <header>
+    <h1>Screen Relay</h1>
+    <p class="lede">Put your computer screen on the TV. Open this page on the TV to get a code, then type that code here on your computer.</p>
+  </header>
+  <div class="choices">
+    <form class="card" id="joinForm" autocomplete="off">
+      <span class="label">On your computer</span>
+      <h2>Share my screen</h2>
+      <label class="note" for="codeInput">Enter the code shown on the TV</label>
+      <input class="code-input" id="codeInput" maxlength="6" placeholder="ABCDE" spellcheck="false" autocapitalize="characters">
+      <button class="primary" type="submit" id="shareBtn">Share screen</button>
+      <p class="error" id="joinError" role="alert"></p>
+    </form>
+    <div class="card">
+      <span class="label">On the TV</span>
+      <h2>Show a screen here</h2>
+      <p class="note">This device gets a room code and a QR code, then shows whatever you share to it, with sound.</p>
+      <button id="tvBtn">Use this device as the TV</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Computer: sharing to a TV ===== -->
+<div class="wrap" id="sharing" hidden>
+  <section class="share-panel">
+    <div class="share-head">
+      <h2>Sharing to TV <span class="tvcode" id="shareCode"></span></h2>
+      <span class="pill" id="sharePill" data-state="idle"><span class="dot"></span><span id="shareState">Connecting…</span></span>
+    </div>
+    <video class="preview" id="preview" autoplay playsinline muted></video>
+    <p class="note" id="audioNote"></p>
+    <div><button class="danger" id="stopBtn">Stop sharing</button></div>
+    <p class="note">Keep this tab open while you share. Tip: share a different window or tab than this one to avoid a screen-inside-a-screen effect.</p>
+  </section>
+</div>
+
+<!-- ===== TV: show the code, then the stream ===== -->
+<div id="tv" hidden>
+  <div class="waiting" id="tvWaiting">
+    <div>
+      <div class="eyebrow">Room code</div>
+      <div class="big-code" id="tvCode">·····</div>
+      <p class="howto">On your computer, go to <strong id="tvUrl"></strong> and enter this code.</p>
+      <p class="sound-prompt" id="soundPrompt">Press <strong>OK</strong> on your remote once so everything plays with sound.</p>
+    </div>
+    <div class="qr" id="qr" aria-label="QR code for the share page"></div>
+  </div>
+  <video id="tvVideo" autoplay playsinline hidden></video>
+  <div class="sound-overlay" id="soundOverlay" hidden>Press <strong>OK</strong> for sound</div>
+  <div class="volume-overlay" id="volumeOverlay" hidden></div>
+  <div class="tv-status" id="tvStatus">Getting a code…</div>
+  <div class="tv-controls" id="tvControls">
+    <button id="soundBtn" class="sound" hidden>Turn on sound</button>
+    <button id="fsBtn">Full screen</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+// A link may carry a home code (&h=...): an installation's private namespace, so two households
+// using the same room code (say 1234) on this public page never meet.
+const HOME = (location.hash.match(/[#&]h=([A-Za-z0-9]{1,16})/) || [])[1] || "";
+const PREFIX = "screenrelay-tv-" + (HOME ? HOME.toLowerCase() + "-" : "");
+const homePart = HOME ? "&h=" + HOME : "";
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no I, O, 0, 1
+const CODE_LEN = 5;
+// Several screens can watch one room (e.g. the TV and a phone): each takes the first free
+// "slot" of the code, and the computer calls every slot.
+const SLOTS = 4;
+const slotId = (code, i) => PREFIX + code + (i ? "-" + i : "");
+
+// Quality: a shared movie should look and sound like one, not like a video call.
+const VIDEO_MAX_BITRATE = 8000000;  // 8 Mbps: sharp full-HD on home Wi-Fi
+const AUDIO_MAX_BITRATE = 256000;
+// Opus in stereo at a high bitrate, instead of WebRTC's voice-call default (mono, ~32 kbps).
+// Both ends add this to their side of the connection, so the sender sends stereo.
+function hiFiAudio(sdp) {
+  const m = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/i);
+  if (!m) return sdp;
+  return sdp.replace(new RegExp("a=fmtp:" + m[1] + " ([^\\r\\n]*)"), (line, params) => "a=fmtp:" + m[1] + " "
+    + params.split(";").filter((p) => p && !/^(stereo|sprop-stereo|maxaveragebitrate)=/.test(p))
+        .concat(["stereo=1", "sprop-stereo=1", "maxaveragebitrate=510000"]).join(";"));
+}
+// Lets the computer's sender use far more bandwidth than the browser's default allows.
+function boostSender(pc) {
+  for (const sender of pc.getSenders()) {
+    if (!sender.track) continue;
+    const params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    if (sender.track.kind === "video") {
+      // When bandwidth is short, drop frames rather than resolution: a blurry movie is worse.
+      params.degradationPreference = "maintain-resolution";
+      params.encodings[0].maxBitrate = VIDEO_MAX_BITRATE;
+      params.encodings[0].maxFramerate = 30;
+    } else {
+      params.encodings[0].maxBitrate = AUDIO_MAX_BITRATE;
+    }
+    sender.setParameters(params).catch(() => {});
+  }
+}
+const $ = (id) => document.getElementById(id);
+const baseUrl = location.origin + location.pathname;
+const prettyUrl = (location.host + location.pathname).replace(/\/$/, "");
+
+function show(view) {
+  for (const id of ["home", "sharing", "tv"]) $(id).hidden = id !== view;
+}
+// Codes the TV makes up are 5 characters from CODE_CHARS; a fixed room code (#tv=1234) can be
+// any 4 to 6 letters or digits.
+const validCode = (c) => /^[A-Z0-9]{4,6}$/.test(c);
+function newCode() {
+  let s = "";
+  for (const b of crypto.getRandomValues(new Uint8Array(CODE_LEN))) s += CODE_CHARS[b % CODE_CHARS.length];
+  return s;
+}
+function store(key, val) { try { val == null ? localStorage.removeItem(key) : localStorage.setItem(key, val); } catch {} }
+function load(key) { try { return localStorage.getItem(key); } catch { return null; } }
+
+/* =============== Computer: share to a TV =============== */
+let stream = null, sendPeer = null, retryTimer = null;
+const viewers = new Map();  // slot peer id -> { call, conn, live, timer }
+const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+
+function setShareState(state, text) {
+  $("sharePill").dataset.state = state;
+  $("shareState").textContent = text;
+}
+
+async function startShare(code) {
+  $("joinError").textContent = "";
+  if (!canShare) {
+    $("joinError").textContent = "This device can't share its screen. Open " + prettyUrl + " on a computer (Chrome, Edge, Firefox or Safari).";
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 30, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      // Raw computer sound: no voice-call processing, which muffles music and video.
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+      systemAudio: "include",
+    });
+  } catch {
+    $("joinError").textContent = "Screen sharing was cancelled. Click Share screen and choose what to show.";
+    return;
+  }
+
+  show("sharing");
+  $("shareCode").textContent = code;
+  $("preview").srcObject = stream;
+  setShareState("idle", "Connecting…");
+  const hasSound = stream.getAudioTracks().length > 0;
+  $("audioNote").className = "note " + (hasSound ? "ok" : "warn");
+  $("audioNote").textContent = hasSound
+    ? "Sound is being shared."
+    : "No sound is being shared. To include it, stop and share again. In the picker, choose a Chrome tab and turn on “Also share tab audio”, or choose Entire Screen and turn on “Also share system audio” if it appears.";
+  stream.getVideoTracks()[0].addEventListener("ended", () => stopShare());
+  // Keep the picture sharp. ("motion" let Chrome shrink the capture itself while a new
+  // connection's bandwidth estimate was still ramping up, and it stayed tiny afterwards.)
+  try { stream.getVideoTracks()[0].contentHint = "detail"; } catch {}
+
+  // Calls every screen on that room code, and keeps calling the empty slots every few
+  // seconds, so a TV (or phone) can open the room before, during or after sharing starts.
+  function refreshState() {
+    const live = [...viewers.values()].filter((v) => v.live).length;
+    if (live) setShareState("live", live > 1 ? "Live on " + live + " screens" : "Live on TV");
+    else setShareState("idle", "Waiting for a TV on code " + code + "…");
+  }
+  function drop(target, v) {
+    if (viewers.get(target) !== v) return;
+    viewers.delete(target);
+    clearTimeout(v.timer);
+    try { v.call.close(); } catch {}
+    refreshState();
+  }
+  function callSlot(target) {
+    const v = { live: false };
+    viewers.set(target, v);
+    v.conn = sendPeer.connect(target, { reliable: true });
+    v.call = sendPeer.call(target, stream, { sdpTransform: hiFiAudio });
+    v.timer = setTimeout(() => { if (!v.live) drop(target, v); }, 15000);  // nobody answered
+    v.call.on("close", () => drop(target, v));
+    const pc = v.call.peerConnection;
+    if (pc) pc.addEventListener("connectionstatechange", () => {
+      if (pc.connectionState === "connected") { v.live = true; refreshState(); boostSender(pc); }
+      if (["failed", "closed"].includes(pc.connectionState)) drop(target, v);
+    });
+  }
+  function callAll() {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    if (!stream || !sendPeer || sendPeer.destroyed) return;
+    if (!sendPeer.disconnected)  // while reconnecting to the server, new calls can't be placed
+      for (let i = 0; i < SLOTS; i++) if (!viewers.has(slotId(code, i))) callSlot(slotId(code, i));
+    retryTimer = setTimeout(callAll, 4000);
+  }
+
+  // The server only introduces screens to each other; once connected, the video flows
+  // directly. So losing the server (it drops idle connections, and the network blips) never
+  // stops the share: screens already watching keep going while it reconnects.
+  let reconnectTimer = null;
+  function reconnect() {
+    reconnectTimer = null;
+    if (!stream || !sendPeer) return;
+    if (sendPeer.destroyed) { stream && startPeer(); return; }
+    if (sendPeer.disconnected) {
+      try { sendPeer.reconnect(); } catch {}
+      reconnectTimer = setTimeout(reconnect, 5000);  // check again; "open" ends this once it's back
+    }
+  }
+
+  function startPeer() {
+    sendPeer = new Peer();
+    sendPeer.on("open", () => { clearTimeout(reconnectTimer); reconnectTimer = null; refreshState(); callAll(); });
+    sendPeer.on("disconnected", () => { if (!reconnectTimer) reconnectTimer = setTimeout(reconnect, 1000); });
+    sendPeer.on("error", onPeerError);
+  }
+
+  function onPeerError(err) {
+    if (err.type === "peer-unavailable") {
+      // Nobody on that slot (yet); callAll tries it again shortly.
+      const target = String(err.message || "").split(" ").pop();
+      if (viewers.has(target)) drop(target, viewers.get(target));
+      else refreshState();
+    }
+    else if (["network", "server-error", "socket-error", "disconnected"].includes(err.type)) {
+      if (![...viewers.values()].some((v) => v.live)) setShareState("idle", "Reconnecting…");
+      if (!reconnectTimer) reconnectTimer = setTimeout(reconnect, 3000);
+    }
+    else if (err.type === "browser-incompatible") stopShare("This browser can't share to the TV.");
+    else console.error(err);
+  }
+
+  startPeer();
+}
+
+function stopShare(errorText) {
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  for (const v of viewers.values()) {
+    clearTimeout(v.timer);
+    try { v.conn && v.conn.open && v.conn.send("bye"); } catch {}
+  }
+  viewers.clear();
+  const peer = sendPeer;
+  setTimeout(() => peer && peer.destroy(), 300);
+  sendPeer = null;
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null;
+  $("preview").srcObject = null;
+  show("home");
+  $("joinError").textContent = errorText || "";
+}
+
+$("codeInput").addEventListener("input", (e) => {
+  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  $("joinError").textContent = "";
+});
+$("joinForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const code = $("codeInput").value.trim().toUpperCase();
+  if (!validCode(code)) {
+    $("joinError").textContent = "Enter the code shown on the TV.";
+    $("codeInput").focus();
+    return;
+  }
+  startShare(code);
+});
+$("stopBtn").onclick = () => stopShare();
+
+/* =============== TV: wait for a computer to share =============== */
+let tvPeer = null, tvCall = null, tvCode = null, tvFixed = false, tvSlot = 0, tvRetries = 0, wakeLock = null;
+const tvVideo = $("tvVideo");
+
+// Volume, set from the phone's slider (0-100, a share of the TV's own volume). Remembered for
+// the next show.
+let volumeTimer = null;
+function setTvVolume(value, quiet) {
+  const v = Math.max(0, Math.min(100, Math.round(+value)));
+  if (!Number.isFinite(v)) return;
+  tvVideo.volume = v / 100;
+  store("screenrelay-volume", String(v));
+  if (quiet) return;
+  $("volumeOverlay").textContent = "Volume " + v + "%";
+  $("volumeOverlay").hidden = false;
+  clearTimeout(volumeTimer);
+  volumeTimer = setTimeout(() => { $("volumeOverlay").hidden = true; }, 1500);
+}
+if (load("screenrelay-volume") !== null) setTvVolume(load("screenrelay-volume"), true);
+
+function startTv(fixedCode) {
+  show("tv");
+  // bookmark-friendly: reopening goes straight to TV mode (with the same fixed room code, if any)
+  history.replaceState(null, "", (fixedCode ? "#tv=" + fixedCode : "#tv") + homePart);
+  $("tvUrl").textContent = prettyUrl;
+  keepAwake();
+  tvFixed = !!fixedCode;
+  tvCode = fixedCode || load("screenrelay-tv-code") || newCode(); // reuse the code across reloads
+  openTvPeer();
+}
+
+function openTvPeer() {
+  $("tvCode").textContent = tvCode;
+  $("tvStatus").textContent = "Getting ready…";
+  const qrEl = $("qr");
+  qrEl.textContent = "";
+  if (window.QRCode) new QRCode(qrEl, { text: baseUrl + "#" + tvCode + homePart, width: 280, height: 280, correctLevel: QRCode.CorrectLevel.M });
+
+  tvPeer = new Peer(slotId(tvCode, tvSlot));
+  tvPeer.on("open", () => {
+    tvRetries = 0;
+    if (!tvFixed) store("screenrelay-tv-code", tvCode);
+    $("tvStatus").textContent = "Ready. Waiting for a computer to share.";
+  });
+  tvPeer.on("call", (call) => {
+    if (tvCall) tvCall.close();
+    tvCall = call;
+    call.answer(undefined, { sdpTransform: hiFiAudio });
+    call.on("stream", (s) => playOnTv(s));
+    call.on("close", () => { if (tvCall === call) endTvStream(); });
+    const pc = call.peerConnection;
+    if (pc) pc.addEventListener("connectionstatechange", () => {
+      if (tvCall === call && ["failed", "closed"].includes(pc.connectionState)) endTvStream();
+    });
+  });
+  tvPeer.on("connection", (conn) => conn.on("data", (d) => {
+    if (d === "bye") endTvStream();
+    else if (d && d.type === "volume") setTvVolume(d.value);  // from the phone's volume slider
+  }));
+  tvPeer.on("disconnected", () => { if (!tvPeer.destroyed) tvPeer.reconnect(); });
+  tvPeer.on("error", (err) => {
+    if (err.type === "unavailable-id") {
+      tvPeer.destroy();
+      if (tvFixed) {
+        // A fixed room code (#tv=1234) is never swapped: another screen is already watching
+        // it, so take the next free slot of the same room (going round again if all are busy).
+        tvSlot = (tvSlot + 1) % SLOTS;
+        $("tvStatus").textContent = "Joining room " + tvCode + "…";
+        setTimeout(openTvPeer, tvSlot ? 300 : 2500);
+      } else {
+        // The code may still be held from a moment ago; wait and retry, then pick a new one.
+        if (++tvRetries > 3) { tvCode = newCode(); tvRetries = 0; }
+        $("tvStatus").textContent = "Reconnecting…";
+        setTimeout(openTvPeer, 2500);
+      }
+    } else if (["network", "server-error", "socket-error"].includes(err.type)) {
+      if (tvCall) {
+        // Already watching: the video doesn't need the server, so keep it playing and
+        // just reconnect to the server in the background.
+        const peer = tvPeer;
+        setTimeout(() => { if (peer === tvPeer && peer.disconnected && !peer.destroyed) try { peer.reconnect(); } catch {} }, 4000);
+        return;
+      }
+      $("tvStatus").textContent = "Can't reach the internet. Retrying…";
+      tvPeer.destroy();
+      setTimeout(openTvPeer, 4000);
+    } else if (err.type !== "peer-unavailable") {
+      console.error(err);
+    }
+  });
+}
+
+// Sound: browsers only let a page play sound after someone has pressed something on it, and
+// then for as long as the page stays open. So any press at all (a remote button, a click, a
+// tap) turns sound on, the waiting screen asks for one press up front, and from then on
+// every show that arrives on this page plays with sound. If one still arrives muted, a big
+// "Press OK for sound" shows until the next press.
+let soundUnlocked = false;
+function markSoundOn() {
+  soundUnlocked = true;
+  $("soundPrompt").textContent = "Sound is on. Leave this page open and every show plays with sound.";
+  $("soundPrompt").classList.add("on");
+}
+function onAnyPress(e) {
+  if (e.type === "keydown" && (e.key === "Escape" || e.key === "GoBack" || e.key === "BrowserBack")) return;
+  if (!soundUnlocked) markSoundOn();
+  if (tvVideo.srcObject && tvVideo.muted) {
+    tvVideo.muted = false;
+    tvVideo.play().then(() => { $("soundBtn").hidden = true; $("soundOverlay").hidden = true; })
+      .catch(() => { tvVideo.muted = true; });
+  }
+}
+["keydown", "pointerdown", "click", "touchstart"].forEach((t) => document.addEventListener(t, onAnyPress, { capture: true }));
+if (navigator.userActivation && navigator.userActivation.hasBeenActive) markSoundOn();
+
+let playToken = 0;
+function playOnTv(s) {
+  // The connection hands over the picture and the sound as separate events, so this runs
+  // twice in a row; a newer call interrupts the older one's play(), which isn't a refusal.
+  const token = ++playToken;
+  if (tvVideo.srcObject !== s) tvVideo.srcObject = s;
+  tvVideo.hidden = false;
+  $("tvWaiting").hidden = true;
+  $("tvStatus").hidden = true;
+  $("tvControls").classList.add("autohide");
+  const hasSound = s.getAudioTracks().length > 0;
+  tvVideo.muted = false;
+  tvVideo.play().then(() => {
+    if (token !== playToken) return;
+    $("soundBtn").hidden = true;
+    $("soundOverlay").hidden = true;
+    if (hasSound) markSoundOn();
+  }).catch((err) => {
+    // Only a real "not allowed" means muted for now (the next press anywhere turns sound on);
+    // an interrupted play() (AbortError) from the second event is ignored.
+    if (token !== playToken || (err && err.name !== "NotAllowedError")) return;
+    tvVideo.muted = true;
+    tvVideo.play().catch(() => {});
+    $("soundBtn").hidden = !hasSound;
+    $("soundOverlay").hidden = !hasSound;
+  });
+}
+
+function endTvStream() {
+  tvCall = null;
+  tvVideo.srcObject = null;
+  tvVideo.hidden = true;
+  $("tvWaiting").hidden = false;
+  $("tvStatus").hidden = false;
+  $("soundBtn").hidden = true;
+  $("soundOverlay").hidden = true;
+  $("tvControls").classList.remove("autohide");
+  $("tvStatus").textContent = "Sharing ended. Waiting for a computer to share.";
+}
+
+async function keepAwake() {
+  try { wakeLock = await navigator.wakeLock.request("screen"); } catch {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !$("tv").hidden) keepAwake();
+});
+
+$("tvBtn").onclick = () => {
+  document.documentElement.requestFullscreen?.().catch(() => {});
+  startTv();
+};
+// A live screen should never sit paused. Phones (iPhones especially) pause a video when you
+// leave their fullscreen player, so start it again straight away.
+function keepLivePlaying() {
+  if (tvVideo.srcObject && tvVideo.paused) setTimeout(() => { if (tvVideo.srcObject && tvVideo.paused) tvVideo.play().catch(() => {}); }, 150);
+}
+tvVideo.addEventListener("webkitendfullscreen", keepLivePlaying);
+tvVideo.addEventListener("pause", keepLivePlaying);
+document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) keepLivePlaying(); });
+document.addEventListener("webkitfullscreenchange", () => { if (!document.webkitFullscreenElement) keepLivePlaying(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepLivePlaying(); });
+
+$("fsBtn").onclick = () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+};
+$("soundBtn").onclick = () => {
+  tvVideo.muted = false;
+  tvVideo.play().catch(() => {});
+  $("soundBtn").hidden = true;
+  $("soundOverlay").hidden = true;
+};
+// Hide the cursor and buttons on the TV after a few seconds without movement.
+let idleTimer;
+$("tv").addEventListener("pointermove", () => {
+  $("tv").classList.remove("idle-cursor");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => $("tv").classList.add("idle-cursor"), 3000);
+});
+
+/* =============== Pick a view from the URL =============== */
+const hash = location.hash.slice(1).replace(/&h=[A-Za-z0-9]*/i, "").toUpperCase();
+const fixedRoom = hash.match(/^TV=([A-Z0-9]{4,6})$/);
+if (hash === "TV") {
+  startTv();
+} else if (fixedRoom) {
+  startTv(fixedRoom[1]); // #tv=1234: this TV always uses room code 1234
+} else {
+  show("home");
+  if (validCode(hash)) {
+    $("codeInput").value = hash; // arrived from the TV's QR code
+    if (!canShare) $("joinError").textContent = "Phones can't share their screen. Open " + prettyUrl + " on your computer and enter " + hash + ".";
+    else $("shareBtn").focus();
+  } else {
+    $("codeInput").focus();
+  }
+  if (!canShare && !validCode(hash)) {
+    $("joinError").textContent = "This device can't share its screen, but it can be the TV.";
+  }
+}
+</script>
+</body>
+</html>

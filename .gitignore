@@ -1,0 +1,20 @@
+# Made on each computer; private or bulky
+app/chrome-profile/
+app/agent-profile/
+app/.builder-key
+app/.remote-key
+app/.remote-pass
+app/.home-id
+app/settings.json
+app/site-config.json
+app/play-buttons.json
+app/rooms.json
+app/nowplaying/
+app/picks/
+app/logs.js
+app/logs.json
+app/*.tmp
+__pycache__/
+*.pyc
+.DS_Store
+app/helper.log

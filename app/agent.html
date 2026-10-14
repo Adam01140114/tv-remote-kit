@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Remote agent</title>
+</head>
+<body>
+<p id="status">Starting…</p>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+  // Runs in a hidden Chrome that builder-server.py starts. It waits on PeerJS for the remote
+  // builder page (remote.html on Render) and passes its requests to the helper on this computer.
+  // Its address comes from the remote link's key and the passcode, so only someone with both
+  // can reach it. It only accepts a title, a site and a room code, and builds the command
+  // itself: the play buttons and the rest come from what's saved for that site on this computer.
+  let peer = null, peerId = null, retryTimer = null;
+  const status = text => { document.getElementById("status").textContent = text; };
+
+  async function helper(path, body) {
+    const res = body === undefined ? await fetch(path, { cache: "no-store" })
+      : await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  }
+
+  async function handle(msg) {
+    const path = String((msg && msg.path) || ""), body = (msg && msg.body) || {};
+    if (path === "/run") {
+      const r = body.remote || {};
+      const title = String(r.title || "").trim(), site = String(r.site || "").trim(), room = String(r.room || "").trim().toUpperCase();
+      if (!title || title.length > 200) return { status: 400, body: { error: "Enter a title." } };
+      if (!/^(https?:\/\/)?[a-z0-9.-]+\.[a-z]{2,}(\/[^\s]*)?$/i.test(site) || site.length > 200)
+        return { status: 400, body: { error: "Enter the site, like www.example.com." } };
+      if (!/^[A-Z0-9]{4,6}$/.test(room)) return { status: 400, body: { error: "The room code should be 4 to 6 letters or digits." } };
+      return helper("/run", { args: [title, "--url", site, "--pick", "--share-room", room] });
+    }
+    const m = path.match(/^\/choices\?pid=(\d+)$/);
+    if (m) return helper("/choices?pid=" + m[1]);
+    if (path === "/choose") {
+      return helper("/choose", { pid: +body.pid, id: String(body.id || ""), index: +body.index });
+    }
+    const rs = path.match(/^\/room-status\?room=([A-Za-z0-9]{4,6})$/);
+    if (rs) return helper("/room-status?room=" + rs[1]);
+    const np = path.match(/^\/now-playing\?room=([A-Za-z0-9]{4,6})$/);
+    if (np) return helper("/now-playing?room=" + np[1]);
+    if (path === "/control") {
+      const room = String(body.room || "").toUpperCase(), action = String(body.action || "");
+      const at = action === "seek" ? Number(body.time) : null;
+      if (!/^[A-Z0-9]{4,6}$/.test(room) || !["play", "pause", "toggle", "seek"].includes(action)
+          || (action === "seek" && !(at >= 0 && at < 86400)))
+        return { status: 400, body: { error: "Bad request." } };
+      return helper("/control", { room, action, time: at });
+    }
+    if (path === "/server") {
+      const room = String(body.room || "").toUpperCase(), server = parseInt(body.server, 10);
+      if (!/^[A-Z0-9]{4,6}$/.test(room) || !(server > 0 && server <= 20))
+        return { status: 400, body: { error: "Bad server." } };
+      return helper("/server", { room, server });
+    }
+    if (path === "/switch") {
+      const room = String(body.room || "").toUpperCase(), season = parseInt(body.season, 10);
+      const episode = body.episode == null || body.episode === "" ? null : parseInt(body.episode, 10);
+      if (!/^[A-Z0-9]{4,6}$/.test(room) || !(season > 0) || (episode !== null && !(episode > 0)))
+        return { status: 400, body: { error: "Bad season or episode." } };
+      return helper("/switch", { room, season, episode });
+    }
+    return { status: 404, body: { error: "Not available remotely." } };
+  }
+
+  function open() {
+    clearTimeout(retryTimer);
+    if (peer && !peer.destroyed) peer.destroy();
+    peer = new Peer(peerId);
+    peer.on("open", () => status("Waiting for the remote page on " + peerId));
+    peer.on("connection", conn => {
+      conn.on("data", async msg => {
+        let reply;
+        try { reply = await handle(msg); } catch (e) { reply = { status: 502, body: { error: "The helper on the computer didn't answer." } }; }
+        try { conn.send({ rid: msg && msg.rid, ...reply }); } catch (e) {}
+      });
+    });
+    peer.on("disconnected", () => { if (!peer.destroyed) setTimeout(() => { try { peer.reconnect(); } catch (e) {} }, 2000); });
+    peer.on("error", err => {
+      if (["unavailable-id", "network", "server-error", "socket-error"].includes(err.type)) {
+        // The address may still be held from a moment ago, or the network blipped: try again.
+        status("Retrying (" + err.type + ")…");
+        retryTimer = setTimeout(open, 5000);
+      }
+    });
+  }
+
+  (async () => {
+    peerId = (await (await fetch("/agent-config", { cache: "no-store" })).json()).peerId;
+    open();
+  })();
+</script>
+</body>
+</html>
