@@ -615,7 +615,8 @@
   // helper's /info below, which also gives the TV links and this install's home code.
   let DEFAULT_SHARE_URL = "http://localhost:8765/", relayInfo = null;
   $("share").checked = store.get("share") !== "0";
-  $("room").value = (store.get("room") || "").trim() || "1234";  // always filled in, 1234 unless changed
+  const roomChosen = (store.get("room") || "").trim();  // a room picked on this device earlier, if any
+  $("room").value = roomChosen || "1234";  // always filled in, 1234 unless changed
   // On the phone the screen is always shared (the live screen there needs it).
   if (document.documentElement.classList.contains("simple")) $("share").checked = true;
   $("shareurl").value = store.get("shareurl") || DEFAULT_SHARE_URL;
@@ -1293,7 +1294,7 @@
       savedConfig = c || {};
       // Fill in what this browser hasn't set itself.
       if (c.site && !$("url").value) $("url").value = c.site;
-      if (c.room && !store.get("room")) $("room").value = c.room;  // the imported room, unless changed here
+      if (c.room && !roomChosen) $("room").value = c.room;  // the imported room, unless one was picked here
       if (c.play_selectors && !$("sel").value) $("sel").value = c.play_selectors.join("\n");
       if (c.fullscreen_selector && !$("fssel").value) $("fssel").value = c.fullscreen_selector;
       if (c.after_fullscreen_selectors && !$("aftersel").value) $("aftersel").value = c.after_fullscreen_selectors.join("\n");
