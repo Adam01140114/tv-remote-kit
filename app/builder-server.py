@@ -372,14 +372,16 @@ CODE_PAGE = b"""<!doctype html><html lang="en"><head><meta charset="utf-8">
         --border: #d7dce2; --accent: #2f6fed; }
 @media (prefers-color-scheme: dark) { :root { --bg: #14171b; --card: #1d2126; --text: #e8ebef; --muted: #9aa5b1;
         --border: #333a42; --accent: #5b8ef5; } }
+* { box-sizing: border-box; }
 body { margin: 0; padding: 40px 16px; background: var(--bg); color: var(--text);
        font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 form { max-width: 360px; margin: 0 auto; background: var(--card); border: 1px solid var(--border);
        border-radius: 12px; padding: 24px; display: grid; gap: 12px; }
 h1 { font-size: 20px; margin: 0; } p { margin: 0; color: var(--muted); }
-input { font: 600 28px ui-monospace, Menlo, monospace; letter-spacing: .3em; text-align: center; padding: 10px;
+input { width: 100%; min-width: 0; font: 600 28px ui-monospace, Menlo, monospace; letter-spacing: .3em; text-indent: .3em;
+        text-align: center; padding: 10px;
         border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); text-transform: uppercase; }
-button { font: 600 16px inherit; padding: 12px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; }
+button { font: 600 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 12px; width: 100%; border: 0; border-radius: 8px; background: var(--accent); color: #fff; }
 </style></head><body>
 <form onsubmit="event.preventDefault(); const c = this.code.value.trim(); if (c) location.href = '/p/' + encodeURIComponent(c);">
   <h1>Search Command Builder</h1>
